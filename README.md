@@ -28,7 +28,7 @@ the device; only the requests themselves need the internet.
 6. Top panel: progress, counters (success / client error / server error / network error), filter chips
    (All / Success / Errors) and a search over values and URLs.
 7. **Export .zip** (only when you ask): `results.csv` (row, value, url, status, time_ms, content_type, error_reason,
-   final_url, size_bytes, body_file; with several template columns, each also gets its own column after `value`)
+   final_url, size_bytes, body_file, via; with several template columns, each also gets its own column after `value`)
    plus every response body under `responses/`.
 8. **History** keeps every run; open one to see its boxes again (works offline), or delete it.
 
@@ -37,9 +37,10 @@ covering JSON, PNG/JPEG/SVG, HTML, XML, text, binary, redirects, 404, 503, 429 a
 
 ## Defaults and decisions
 
-- No proxy: requests go straight from Safari. A server that does not send CORS headers gets a box saying
-  **BLOCKED by CORS** (the app confirms with a second, no-cors request that the server did answer). A proxy can come
-  in a later phase.
+- Requests go straight from Safari. A server that does not send CORS headers gets a box saying **BLOCKED by CORS**
+  (the app confirms with a second, no-cors request that the server did answer). That box still shows the response in
+  a sandboxed frame, the same way tapping the URL does, but without status, copy or export; sites that forbid framing
+  stay blank there. For full results on those URLs, set up the optional proxy (below).
 - Browsers report DNS failures, refused connections, SSL errors and redirect loops as the same error, so those share
   one "Network error" box listing the possible causes. Timeouts, offline, invalid URLs and http-from-https
   (mixed content) are told apart.
@@ -53,6 +54,28 @@ covering JSON, PNG/JPEG/SVG, HTML, XML, text, binary, redirects, 404, 503, 429 a
 - httpbin.org caps `delay/N` at 10 s, so `delay/20` only times out with a timeout below 10 s.
 - More than 60 boxes render in batches while you scroll, so 1,000+ rows stay smooth (tested with 1,500).
 - Theme follows the system (light/dark); 13 themes in Settings.
+
+## Proxy for CORS-blocked URLs (optional)
+
+`proxy/worker.js` is a Cloudflare Worker that fetches a URL for the app and adds the CORS header the server left
+out. It answers only requests that come from the app's address **and** carry your secret key, so nobody else can use
+it. In the app: **Settings → Proxy**, with modes **Off**, **When blocked** (default: direct first, and only rows the
+browser blocks, CORS or http-from-https, go through the proxy) and **Always**. Boxes fetched through it say "via proxy",
+and the export has a `via` column.
+
+Setup (about 5 minutes; the same steps are under Settings → Proxy → Setup steps, with a Copy Worker code button):
+
+1. In the app: Settings → Proxy → **Generate**, then **Copy key**.
+2. Sign up at dash.cloudflare.com (free plan: 100,000 requests a day).
+3. Workers & Pages → Create → Worker from the "Hello World" starter, name it e.g. `csv-proxy`, Deploy.
+4. Edit code: replace everything with `proxy/worker.js` (or Copy Worker code in the app), Deploy.
+5. Worker → Settings → Variables and Secrets → add a **Secret** `PROXY_KEY` with your key.
+6. Only if you use the app from another address than `https://schwi2807.github.io` (e.g. `http://localhost:8000`
+   on a PC): add a Text variable `ALLOWED_ORIGINS` with the addresses, comma-separated.
+7. Paste the Worker address (`https://csv-proxy.<account>.workers.dev`) into Proxy URL and press **Test proxy**.
+
+Test the Worker locally without Cloudflare: `node proxy/dev-server.mjs --port 8804 --key test-key --origins http://localhost:8000`,
+then use `http://localhost:8804` as the Proxy URL.
 
 ## Publish on GitHub Pages
 

@@ -1,9 +1,9 @@
 // Bump VERSION on every deploy so installed copies pick up new files.
 // PREFIX must be unique per app: every app on <user>.github.io shares one origin and one CacheStorage.
 const PREFIX = 'csv-url-fetcher-';
-const VERSION = PREFIX + 'v2';
+const VERSION = PREFIX + 'v3';
 const ASSETS = [
-  './', 'index.html', 'style.css', 'core.js', 'app.js', 'errors.js', 'zip.js', 'render.js', 'fetcher.js', 'vendor/papaparse.min.js', 'sample.csv', 'manifest.webmanifest',
+  './', 'index.html', 'style.css', 'core.js', 'app.js', 'errors.js', 'zip.js', 'render.js', 'fetcher.js', 'vendor/papaparse.min.js', 'sample.csv', 'proxy/worker.js', 'manifest.webmanifest',
   'icons/icon-180.png', 'icons/icon-192.png', 'icons/icon-512.png',
   'modules/ui.js', 'modules/viewer.js', 'vendor/pdf.min.js', 'vendor/pdf.worker.min.js',
 ];

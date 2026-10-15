@@ -24,3 +24,9 @@ filters + search, zip (CRC check of every entry), reload persistence, 1,500 rows
 "Base URL + one column" replaced by a URL template with `{column}` placeholders (any number, header name or column
 number), column chips that insert at the cursor, unknown-placeholder warning; dedupe by URL; skip-empty when any used
 column is empty; export adds one CSV column per template column; v1 settings migrate. Cache VERSION v2.
+
+## Change 2026-10-16: CORS fallback + proxy
+CORS-blocked boxes show the URL in a sandboxed lazy iframe (no status/copy/export). Optional Cloudflare Worker
+(`proxy/worker.js`, origin allow-list + PROXY_KEY secret, X-Final-Url/X-Redirected/X-Status-Text/X-Proxy-Error headers);
+Settings → Proxy (Off / When blocked / Always, Generate key, Test, Setup steps, Copy Worker code); `proxy/dev-server.mjs`
+runs the Worker in Node for tests. Cache VERSION v3.

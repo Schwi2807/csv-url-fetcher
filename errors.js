@@ -1,7 +1,7 @@
 'use strict';
 /* errors.js: reason phrases and plain-English explanations for HTTP statuses and fetch failures.
    Errors.status(code)   -> { title, text, fix }
-   Errors.network(kind)  -> { title, text, fix }   kinds: cors, network, timeout, offline, invalid_url, insecure, stopped
+   Errors.network(kind)  -> { title, text, fix }   kinds: cors, proxy, network, timeout, offline, invalid_url, insecure, stopped
    Errors.reason(code)   -> 'Not Found' (HTTP/2 responses carry no reason phrase, so the app fills it in) */
 const Errors = (() => {
   const REASONS = {
@@ -59,8 +59,10 @@ const Errors = (() => {
   };
 
   const NETWORK = {
-    cors: ['BLOCKED by CORS', 'The server answered, but it does not allow web apps on other sites to read its responses (no Access-Control-Allow-Origin header), so the browser hid the response.',
-      'Open the URL directly (tap it) to see the response, or use an API that allows cross-origin requests. A proxy can get around this later.'],
+    cors: ['BLOCKED by CORS', 'The server answered, but it does not let web apps on other sites read its responses (no Access-Control-Allow-Origin header), so the browser hid it from the app. Tapping the URL works because that is you visiting the page, not an app reading it.',
+      'The box below shows the page as your browser opens it. For full results (status, copy, export), set up the proxy in Settings.'],
+    proxy: ['Proxy error', 'The proxy could not get this URL for the app.',
+      'Open Settings, Proxy, and press Test proxy. Check the proxy URL, the key, and that the Worker allows this app\'s address (ALLOWED_ORIGINS).'],
     network: ['Network error', 'The request failed before any response arrived. The browser does not say why; the usual causes are: the domain does not exist (DNS failure), the server refused the connection, an SSL/certificate problem, or too many redirects.',
       'Check the domain in the URL template is spelled right and reachable (tap the URL to open it in the browser), then Retry failed.'],
     timeout: ['Timeout', 'No complete response arrived within the timeout.',

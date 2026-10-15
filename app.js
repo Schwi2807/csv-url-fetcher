@@ -3,7 +3,8 @@
    GET it, one card per response.
    Data: IndexedDB stores `runs` (settings + queued items) and `results` (one record per response, id = runId:index);
    kv keeps the loaded CSV, the options and the last opened run. */
-const DEFAULT_OPTS = { template: '', header: true, encode: true, skipEmpty: true, dedupe: false, concurrency: 4, timeout: 15 };
+const DEFAULT_OPTS = { template: '', header: true, encode: true, skipEmpty: true, dedupe: false, concurrency: 4, timeout: 15,
+  proxyUrl: '', proxyKey: '', proxyMode: 'blocked' }; // proxyMode: off | blocked (only CORS/http-blocked rows) | always
 const BATCH = 60; // cards rendered per batch; more load while scrolling
 const state = { csv: null, opts: { ...DEFAULT_OPTS }, run: null, results: new Map(), filter: 'all', q: '', persisted: null, exporting: false };
 let view = null; // live DOM refs of the Fetch tab, rebuilt on every render
@@ -107,6 +108,20 @@ async function openRun(run) {
   }
 }
 
+/* ---------- proxy ---------- */
+function proxyConfig() {
+  const o = state.opts, url = (o.proxyUrl || '').trim();
+  return o.proxyMode !== 'off' && url && o.proxyKey ? { url, key: o.proxyKey } : null;
+}
+// Direct first; rows the browser blocks (CORS, http from https) go again through the proxy when one is set up.
+async function fetchRow(url, opts) {
+  const proxy = proxyConfig();
+  if (proxy && state.opts.proxyMode === 'always') return Fetcher.get(url, { ...opts, proxy });
+  const r = await Fetcher.get(url, opts);
+  if (proxy && r.error && ['cors', 'insecure'].includes(r.error.kind) && !(opts.signal && opts.signal.aborted)) return Fetcher.get(url, { ...opts, proxy });
+  return r;
+}
+
 async function start(items, retry) {
   if (Runner.running || !items.length) return;
   const o = state.opts;
@@ -126,7 +141,7 @@ async function start(items, retry) {
   run.finished = null;
   updateSummary();
   const stopped = await Runner.run(items, {
-    concurrency: Math.min(10, Math.max(1, o.concurrency | 0)), timeoutMs: Math.max(1, +o.timeout || 15) * 1000,
+    concurrency: Math.min(10, Math.max(1, o.concurrency | 0)), timeoutMs: Math.max(1, +o.timeout || 15) * 1000, fetch: fetchRow,
     onStart: (it) => { state.results.set(it.i, { state: 'pending' }); placeCard(it); scheduleSummary(); },
     onDone: (it, r) => {
       const rec = { id: resultKey(run.id, it.i), runId: run.id, i: it.i, state: 'done', at: Date.now(), ...r };
@@ -160,6 +175,14 @@ function explain(r) {
     r.error && r.error.message && r.error.kind !== 'stopped' ? h('div', { class: 'muted small' }, 'Browser said: ' + r.error.message) : null);
 }
 
+// The app may not read a CORS-blocked response, but the browser may still show it, like tapping the link.
+// sandbox="" = no scripts, no forms, no access to this app; lazy so a long list does not load them all at once.
+function corsFrame(it) {
+  return h('div', { class: 'resp' },
+    h('div', { class: 'muted small' }, 'Shown the way your browser opens it: the app cannot read the status, copy or export it.'),
+    h('iframe', { class: 'preview', src: it.url, sandbox: '', loading: 'lazy', referrerpolicy: 'no-referrer', title: 'Response for row ' + it.row }));
+}
+
 function card(it) {
   const r = state.results.get(it.i);
   const done = r && r.state === 'done';
@@ -168,6 +191,7 @@ function card(it) {
     meta.push(`${r.ms} ms`);
     if (!r.error) meta.push(Render.fmtSize(r.size) + (r.truncated ? ' (cut)' : ''));
     if (!r.error && r.ct) meta.push(Render.mimeOf(r.ct));
+    if (r.via === 'proxy') meta.push('via proxy');
   }
   return h('article', { class: 'card rcard', 'data-i': it.i },
     h('div', { class: 'rhead' },
@@ -179,6 +203,7 @@ function card(it) {
     meta.length ? h('div', { class: 'meta muted small' }, meta.join(' · ')) : null,
     !done ? h('div', { class: 'pending-body' }, h('span', { class: 'spin big' }), 'Waiting for response…') : null,
     done && isFail(r) ? explain(r) : null,
+    done && r.error && r.error.kind === 'cors' ? corsFrame(it) : null,
     done && r.body && (r.body.size || !isFail(r)) ? Render.body(r, fileBase(it)) : null);
 }
 
@@ -283,7 +308,7 @@ async function exportZip() {
   try {
     // With several template columns, each gets its own CSV column after the combined value.
     const cols = run.columns && run.columns.length > 1 ? run.columns : [];
-    const files = [], lines = [['row', 'value', ...cols, 'url', 'status', 'time_ms', 'content_type', 'error_reason', 'final_url', 'size_bytes', 'body_file'].join(',')];
+    const files = [], lines = [['row', 'value', ...cols, 'url', 'status', 'time_ms', 'content_type', 'error_reason', 'final_url', 'size_bytes', 'body_file', 'via'].join(',')];
     for (const it of run.items) {
       const r = state.results.get(it.i);
       let reason = '', file = '';
@@ -297,7 +322,7 @@ async function exportZip() {
         files.push({ name: file, data: r.body });
       }
       const ok = r && r.state === 'done';
-      lines.push([it.row, it.value, ...cols.map((_, k) => (it.values || [])[k] ?? ''), it.url, ok && !r.error ? r.status : '', ok ? r.ms : '', ok && !r.error ? Render.mimeOf(r.ct) : '', reason, ok && !r.error ? r.finalUrl : '', ok && !r.error ? r.size : '', file].map(csvCell).join(','));
+      lines.push([it.row, it.value, ...cols.map((_, k) => (it.values || [])[k] ?? ''), it.url, ok && !r.error ? r.status : '', ok ? r.ms : '', ok && !r.error ? Render.mimeOf(r.ct) : '', reason, ok && !r.error ? r.finalUrl : '', ok && !r.error ? r.size : '', file, ok ? r.via || 'direct' : ''].map(csvCell).join(','));
     }
     files.unshift({ name: 'results.csv', data: '﻿' + lines.join('\r\n') + '\r\n' });
     const blob = await Zip.make(files);
@@ -500,9 +525,70 @@ async function renderHistory(body) {
 }
 
 /* ---------- Settings tab ---------- */
+let workerCode = ''; // loaded ahead so "Copy Worker code" copies inside the tap (iOS refuses clipboard writes after an await)
+const isProxyUrl = (s) => { try { const u = new URL(s); return u.protocol === 'https:' || (u.protocol === 'http:' && Fetcher.isLocal(u.hostname)); } catch (e) { return false; } };
+
+function proxySteps() {
+  const li = (...k) => h('li', null, ...k);
+  openSheet('Set up the proxy', h('div', { class: 'form steps' },
+    h('p', { style: 'margin:0' }, 'A free Cloudflare Worker fetches blocked URLs for the app and adds the missing CORS header. Only this app, with your key, can use it. About 5 minutes; Cloudflare menu names may differ slightly.'),
+    h('ol', null,
+      li('Here: press ', h('b', null, 'Generate'), ' under Key, then ', h('b', null, 'Copy key'), '.'),
+      li('Open ', h('b', null, 'dash.cloudflare.com'), ' and sign up (free plan: 100,000 requests a day).'),
+      li(h('b', null, 'Workers & Pages'), ' → ', h('b', null, 'Create'), ' → create a Worker from the "Hello World" starter, name it e.g. ', h('code', null, 'csv-proxy'), ', Deploy.'),
+      li(h('b', null, 'Edit code'), ': delete everything, paste the Worker code (', h('b', null, 'Copy Worker code'), ' below), ', h('b', null, 'Deploy'), '.'),
+      li('Worker → ', h('b', null, 'Settings'), ' → ', h('b', null, 'Variables and Secrets'), ' → Add: type ', h('b', null, 'Secret'), ', name ', h('code', null, 'PROXY_KEY'), ', value = your key. Save / Deploy.'),
+      li('Only if you use the app from another address than ', h('code', null, 'https://schwi2807.github.io'), ' (e.g. a test copy on a PC at ', h('code', null, 'http://localhost:8000'), '): add a Text variable ', h('code', null, 'ALLOWED_ORIGINS'), ' listing the addresses, comma-separated.'),
+      li('Copy the Worker address (', h('code', null, 'https://csv-proxy.<account>.workers.dev'), ') into ', h('b', null, 'Proxy URL'), ' here and press ', h('b', null, 'Test proxy'), '.')),
+    h('button', { class: 'btn block', onclick: () => workerCode ? copyText(workerCode, 'Worker code copied') : toast('Worker code not loaded') }, 'Copy Worker code')));
+}
+
+function proxyPanel() {
+  const o = state.opts;
+  const status = h('div', { class: 'muted small' });
+  const describe = () => { status.textContent = o.proxyMode === 'off' ? 'Off: blocked rows show the framed fallback.'
+    : !proxyConfig() ? 'Not set up yet: blocked rows show the framed fallback.'
+    : o.proxyMode === 'always' ? 'Every request goes through the proxy.' : 'Rows the browser blocks are retried through the proxy.'; };
+  describe();
+  const field = (attrs) => h('input', { autocapitalize: 'off', autocorrect: 'off', spellcheck: 'false', autocomplete: 'off', ...attrs });
+  const url = field({ type: 'url', inputmode: 'url', placeholder: 'https://csv-proxy.your-account.workers.dev', value: o.proxyUrl });
+  url.addEventListener('input', () => { o.proxyUrl = url.value.trim(); saveOpts(); describe(); });
+  const key = field({ type: 'text', class: 'mono', placeholder: 'Press Generate', value: o.proxyKey });
+  key.addEventListener('input', () => { o.proxyKey = key.value.trim(); saveOpts(); describe(); });
+  const generate = async () => {
+    if (o.proxyKey && !(await confirmBox('Make a new key? The Worker’s PROXY_KEY secret must then be changed to it too.', 'New key'))) return;
+    key.value = [...crypto.getRandomValues(new Uint8Array(24))].map(b => b.toString(16).padStart(2, '0')).join('');
+    key.dispatchEvent(new Event('input'));
+  };
+  const test = async () => {
+    const p = { url: o.proxyUrl, key: o.proxyKey };
+    if (!isProxyUrl(p.url)) { status.textContent = 'Enter the Worker address (https://…).'; return; }
+    if (!p.key) { status.textContent = 'Generate a key first, and set it as PROXY_KEY on the Worker.'; return; }
+    status.textContent = 'Testing…';
+    const r = await Fetcher.get('https://example.com/', { timeoutMs: 20000, proxy: p });
+    status.textContent = r.error ? `Not working: ${r.error.message || Errors.network(r.error.kind).title}`
+      : `Proxy works: example.com answered ${r.status} through it (${r.ms} ms).`;
+  };
+  return h('div', { class: 'panel' },
+    h('div', { class: 'muted small' }, 'For servers that block web apps (BLOCKED by CORS). Your own free Cloudflare Worker fetches those URLs for the app.'),
+    UI.segmented([['off', 'Off'], ['blocked', 'When blocked'], ['always', 'Always']], o.proxyMode, (v) => { o.proxyMode = v; saveOpts(); describe(); }),
+    h('label', { class: 'field' }, 'Proxy URL', url),
+    h('label', { class: 'field' }, 'Key', key),
+    h('div', { class: 'row' },
+      h('button', { class: 'btn', onclick: generate }, 'Generate'),
+      Render.copyBtn(() => key.value, 'Copy key'),
+      h('button', { class: 'btn primary', onclick: test }, 'Test proxy')),
+    status,
+    h('div', { class: 'row' },
+      h('button', { class: 'btn', onclick: proxySteps }, 'Setup steps'),
+      h('button', { class: 'btn', onclick: () => workerCode ? copyText(workerCode, 'Worker code copied') : toast('Worker code not loaded') }, 'Copy Worker code')));
+}
+
 async function renderSettings(body) {
+  if (!workerCode) fetch('proxy/worker.js').then(r => r.ok ? r.text() : '').then(t => { workerCode = t; }).catch(() => {});
   const est = navigator.storage && navigator.storage.estimate ? await navigator.storage.estimate().catch(() => null) : null;
   body.replaceChildren(h('div', { class: 'pad' },
+    h('h2', null, 'Proxy'), proxyPanel(),
     h('h2', null, 'Theme'), Theme.picker(),
     h('h2', null, 'Data on this device'),
     h('div', { class: 'panel' },
@@ -515,7 +601,7 @@ async function renderSettings(body) {
         state.run = null; state.results = new Map(); Tabs.refresh(); toast('History deleted');
       } }, 'Delete all history')),
     h('h2', null, 'About'),
-    h('p', { class: 'muted small' }, 'Requests go straight from this device to each URL. Servers that do not allow cross-origin reads show "BLOCKED by CORS". Responses are kept up to 10 MB each.')));
+    h('p', { class: 'muted small' }, 'Requests go straight from this device to each URL. Servers that do not allow cross-origin reads show "BLOCKED by CORS" (with the page shown in a frame), or go through your proxy when it is set up. Responses are kept up to 10 MB each.')));
 }
 
 (async function boot() {
