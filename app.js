@@ -159,7 +159,8 @@ async function start(items, retry) {
 /* ---------- cards ---------- */
 function badge(r) {
   if (!r || r.state === 'pending') return h('span', { class: 'badge pending' }, h('span', { class: 'spin' }), 'Waiting');
-  if (r.error) return h('span', { class: 'badge net' }, r.error.kind === 'cors' ? 'BLOCKED by CORS' : Errors.network(r.error.kind).title);
+  if (r.error && r.error.kind === 'cors') return null; // the red glow says it; the box just shows the result
+  if (r.error) return h('span', { class: 'badge net' }, Errors.network(r.error.kind).title);
   const cls = r.status >= 400 ? 'bad' : r.status >= 300 ? 'warn' : 'ok';
   return h('span', { class: 'badge ' + cls }, `${r.status} ${r.reason || Errors.reason(r.status)}`.trim());
 }
@@ -179,7 +180,6 @@ function explain(r) {
 // sandbox="" = no scripts, no forms, no access to this app; lazy so a long list does not load them all at once.
 function corsFrame(it) {
   return h('div', { class: 'resp' },
-    h('div', { class: 'muted small' }, 'Shown the way your browser opens it: the app cannot read the status, copy or export it.'),
     h('iframe', { class: 'preview', src: it.url, sandbox: '', loading: 'lazy', referrerpolicy: 'no-referrer', title: 'Response for row ' + it.row }));
 }
 
@@ -193,7 +193,11 @@ function card(it) {
     if (!r.error && r.ct) meta.push(Render.mimeOf(r.ct));
     if (r.via === 'proxy') meta.push('via proxy');
   }
-  return h('article', { class: 'card rcard', 'data-i': it.i },
+  const cors = done && r.error && r.error.kind === 'cors';
+  if (cors) meta.push('shown in frame, status unknown');
+  // Glow: green = worked, red = blocked by CORS (shown in a frame), amber = any other error.
+  const glow = !done ? '' : cors ? ' g-cors' : isFail(r) ? ' g-err' : ' g-ok';
+  return h('article', { class: 'card rcard' + glow, 'data-i': it.i },
     h('div', { class: 'rhead' },
       h('span', { class: 'rownum' }, '#' + it.row),
       h('h3', { class: 'val' }, it.value || h('span', { class: 'muted' }, '(empty)')),
@@ -202,8 +206,8 @@ function card(it) {
     done && r.redirected && r.finalUrl && r.finalUrl !== it.url ? h('div', { class: 'muted small url' }, 'Redirected to ' + r.finalUrl) : null,
     meta.length ? h('div', { class: 'meta muted small' }, meta.join(' · ')) : null,
     !done ? h('div', { class: 'pending-body' }, h('span', { class: 'spin big' }), 'Waiting for response…') : null,
-    done && isFail(r) ? explain(r) : null,
-    done && r.error && r.error.kind === 'cors' ? corsFrame(it) : null,
+    done && isFail(r) && !cors ? explain(r) : null,
+    cors ? corsFrame(it) : null,
     done && r.body && (r.body.size || !isFail(r)) ? Render.body(r, fileBase(it)) : null);
 }
 

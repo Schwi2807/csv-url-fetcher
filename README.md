@@ -37,8 +37,10 @@ covering JSON, PNG/JPEG/SVG, HTML, XML, text, binary, redirects, 404, 503, 429 a
 
 ## Defaults and decisions
 
-- Requests go straight from Safari. A server that does not send CORS headers gets a box saying **BLOCKED by CORS**
-  (the app confirms with a second, no-cors request that the server did answer). That box still shows the response in
+- Box frames glow **green** when a request worked, **red** when the server blocked the app (CORS) and the result is
+  shown in a frame, **amber** for any other error (with an explanation).
+- Requests go straight from Safari. A server that does not send CORS headers gets a red-glowing box
+  (the app confirms with a second, no-cors request that the server did answer). That box shows the response in
   a sandboxed frame, the same way tapping the URL does, but without status, copy or export; sites that forbid framing
   stay blank there. For full results on those URLs, set up the optional proxy (below).
 - Browsers report DNS failures, refused connections, SSL errors and redirect loops as the same error, so those share

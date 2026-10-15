@@ -296,3 +296,7 @@ input.mono { font-family: var(--mono); font-size: 16px; }
 .steps code { font-family: var(--mono); font-size: 14px; overflow-wrap: anywhere; }
 .panel .seg { display: flex; flex-wrap: nowrap; }
 .panel .seg button { flex: 1; padding: 0 8px; white-space: nowrap; }
+.rcard.g-ok { border-color: var(--good); box-shadow: 0 0 0 1px var(--good), 0 0 14px color-mix(in srgb, var(--good) 45%, transparent); }
+.rcard.g-cors { border-color: var(--danger); box-shadow: 0 0 0 1px var(--danger), 0 0 16px color-mix(in srgb, var(--danger) 55%, transparent); }
+.rcard.g-err { border-color: var(--warn); box-shadow: 0 0 0 1px var(--warn), 0 0 14px color-mix(in srgb, var(--warn) 45%, transparent); }
+.cards.results { gap: 16px; }
