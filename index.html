@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>CSV URL Fetcher</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" type="image/png" href="icons/icon-192.png">
+<link rel="apple-touch-icon" href="icons/icon-180.png">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="URL Fetcher">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="theme-color" content="#f2f2f7">
+<meta name="format-detection" content="telephone=no">
+<script>try{var t=localStorage.getItem('csv-url-fetcher-theme');if(t&&t!=='system')document.documentElement.dataset.theme=t}catch(e){}</script>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<main id="app"></main>
+<nav class="tabbar" id="tabbar"></nav>
+<div id="sheet" class="sheet" hidden></div>
+<div id="overlay" class="overlay" hidden></div>
+<div id="toast" class="toast" role="status" aria-live="polite"></div>
+<script src="core.js"></script>
+<script src="modules/ui.js"></script>
+<script src="modules/viewer.js"></script>
+<script src="vendor/papaparse.min.js"></script>
+<script src="errors.js"></script>
+<script src="zip.js"></script>
+<script src="render.js"></script>
+<script src="fetcher.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

@@ -1,0 +1,18 @@
+﻿id,endpoint,note
+1,json,"JSON object, nested"
+2,image/png,PNG image
+3,image/jpeg,JPEG image
+4,image/svg,SVG image
+5,html,"HTML page, with ""quotes"""
+6,xml,XML document
+7,robots.txt,plain text
+8,status/404,not found
+9,status/503,server unavailable
+10,status/429,rate limited
+11,delay/20,"timeout (httpbin caps delay at 10 s, so set timeout below 10)"
+12,bytes/1024,"binary, 1 KB"
+13,encoding/utf8,"UTF-8 text, many scripts"
+14,redirect/2,"redirects twice, then JSON"
+15,,empty cell (skipped by default)
+16,json,duplicate of row 1
+17,uuid,small JSON
