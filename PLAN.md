@@ -19,3 +19,8 @@ Export only on request, as a .zip.
 ## Verified (browser pane, iPhone 375x812 + iPad 768x1024 / 1180x820, light + dark)
 sample.csv against httpbin (all card types), CORS (example.com), DNS failure, invalid URL, Stop + Retry failed,
 filters + search, zip (CRC check of every entry), reload persistence, 1,500 rows (2.2 s, max 5 ms main-thread stall), offline reload.
+
+## Change 2026-10-16: URL templates
+"Base URL + one column" replaced by a URL template with `{column}` placeholders (any number, header name or column
+number), column chips that insert at the cursor, unknown-placeholder warning; dedupe by URL; skip-empty when any used
+column is empty; export adds one CSV column per template column; v1 settings migrate. Cache VERSION v2.

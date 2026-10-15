@@ -23,11 +23,11 @@ const Errors = (() => {
     400: ['The server could not understand the request; usually the value in the URL is malformed for this API.',
       'Check this row\'s value: stray spaces, wrong format or characters that need URL-encoding (turn "URL-encode values" on).'],
     401: ['The server needs you to log in or send an API key, and none was sent.',
-      'This app sends plain GET requests with no credentials. Use a public endpoint, or one that takes the key in the URL (e.g. ?api_key=...) and add it to the base URL.'],
+      'This app sends plain GET requests with no credentials. Use a public endpoint, or one that takes the key in the URL (e.g. ?api_key=...) and add it to the URL template.'],
     403: ['The server understood the request but refuses to serve it to you.',
       'The resource may be private, need a key with more access, or block automated requests. Check the API\'s access rules.'],
     404: ['The server has no resource at this path.',
-      'Check the base URL ends with the right slash, and that this row\'s value exists. If values contain "/", turn "URL-encode values" off.'],
+      'Check the URL template (slashes between the parts), and that this row\'s values exist. If values contain "/", turn "URL-encode values" off.'],
     405: ['This URL exists but does not accept GET requests.',
       'The endpoint probably expects POST or another method. Check the API docs for a GET endpoint.'],
     408: ['The server gave up waiting for the request.',
@@ -37,9 +37,9 @@ const Errors = (() => {
     410: ['This resource used to exist but has been removed permanently.',
       'The value is outdated; the item was deleted. Remove it from the CSV.'],
     413: ['The request is larger than the server accepts.',
-      'Rare for GET. A very long value or base URL may be the cause; shorten it.'],
+      'Rare for GET. A very long value or URL template may be the cause; shorten it.'],
     414: ['The URL is longer than the server accepts.',
-      'This row\'s value (after encoding) makes the URL too long. Shorten the value or the base URL.'],
+      'This row\'s value (after encoding) makes the URL too long. Shorten the value or the URL template.'],
     415: ['The server does not support the format of the request.',
       'Rare for GET. The endpoint may expect a different API; check the docs.'],
     422: ['The server understood the request, but the value is not valid for it.',
@@ -62,13 +62,13 @@ const Errors = (() => {
     cors: ['BLOCKED by CORS', 'The server answered, but it does not allow web apps on other sites to read its responses (no Access-Control-Allow-Origin header), so the browser hid the response.',
       'Open the URL directly (tap it) to see the response, or use an API that allows cross-origin requests. A proxy can get around this later.'],
     network: ['Network error', 'The request failed before any response arrived. The browser does not say why; the usual causes are: the domain does not exist (DNS failure), the server refused the connection, an SSL/certificate problem, or too many redirects.',
-      'Check the domain in the base URL is spelled right and reachable (tap the URL to open it in the browser), then Retry failed.'],
+      'Check the domain in the URL template is spelled right and reachable (tap the URL to open it in the browser), then Retry failed.'],
     timeout: ['Timeout', 'No complete response arrived within the timeout.',
       'The server is slow or the response is large. Raise "Timeout per request" or lower concurrency, then Retry failed.'],
     offline: ['Offline', 'This device has no internet connection.',
       'Connect to Wi-Fi or mobile data, then Retry failed.'],
-    invalid_url: ['Invalid URL', 'The base URL plus this row\'s value does not form a valid web address.',
-      'The base URL must start with http:// or https://. Check for spaces or stray characters in the value, or turn "URL-encode values" on.'],
+    invalid_url: ['Invalid URL', 'The URL template filled with this row\'s values does not form a valid web address.',
+      'The template must start with http:// or https://. Check for spaces or stray characters in the value, or turn "URL-encode values" on.'],
     insecure: ['Blocked: insecure http URL', 'This app runs on https, and the browser blocks plain http:// requests from https pages (mixed content).',
       'Use the https:// version of the URL if the server has one.'],
     stopped: ['Stopped', 'This request was cancelled with Stop before it finished.',
@@ -80,7 +80,7 @@ const Errors = (() => {
     const title = `${code} ${reason(code)}`.trim();
     if (STATUS[code]) return { title, text: STATUS[code][0], fix: STATUS[code][1] };
     if (code >= 500) return { title, text: 'The server had a problem handling the request.', fix: 'Retry later; the cause is on the server side.' };
-    if (code >= 400) return { title, text: 'The server rejected the request.', fix: 'Check the base URL and this row\'s value against the API docs.' };
+    if (code >= 400) return { title, text: 'The server rejected the request.', fix: 'Check the URL template and this row\'s values against the API docs.' };
     if (code >= 300) return { title, text: 'The server answered with a redirect that was not followed.', fix: 'Open the URL directly to see where it points.' };
     return { title, text: '', fix: '' };
   }

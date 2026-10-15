@@ -1,8 +1,9 @@
 'use strict';
-/* app.js: CSV URL Fetcher. Load a CSV, pick one column, GET base URL + value for every row, one card per response.
+/* app.js: CSV URL Fetcher. Load a CSV, fill a URL template like https://example.com/{id}/{name}/get from each row,
+   GET it, one card per response.
    Data: IndexedDB stores `runs` (settings + queued items) and `results` (one record per response, id = runId:index);
    kv keeps the loaded CSV, the options and the last opened run. */
-const DEFAULT_OPTS = { base: '', column: 0, columnName: '', header: true, encode: true, skipEmpty: true, dedupe: false, concurrency: 4, timeout: 15 };
+const DEFAULT_OPTS = { template: '', header: true, encode: true, skipEmpty: true, dedupe: false, concurrency: 4, timeout: 15 };
 const BATCH = 60; // cards rendered per batch; more load while scrolling
 const state = { csv: null, opts: { ...DEFAULT_OPTS }, run: null, results: new Map(), filter: 'all', q: '', persisted: null, exporting: false };
 let view = null; // live DOM refs of the Fetch tab, rebuilt on every render
@@ -11,7 +12,8 @@ const pad = (n, w = 6) => String(n).padStart(w, '0');
 const resultKey = (runId, i) => `${runId}:${pad(i)}`;
 const safeName = (s) => (s || 'empty').replace(/[^\w.-]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 40) || 'value';
 const fileBase = (it) => `row${it.row}_${safeName(it.value)}`;
-const LS_BASE = APP_SLUG + '-base-url';
+const LS_TEMPLATE = APP_SLUG + '-url-template';
+const PH = /\{([^{}]+)\}/g; // {column name} or {column number}
 
 /* ---------- CSV + queue ---------- */
 function columnNames(csv = state.csv, header = state.opts.header) {
@@ -21,13 +23,35 @@ function columnNames(csv = state.csv, header = state.opts.header) {
 }
 const dataRows = () => !state.csv ? [] : state.opts.header ? state.csv.rows.slice(1) : state.csv.rows;
 
+// Placeholder -> column index: exact header name (case-insensitive), else a 1-based column number. -1 if neither.
+function resolveCol(key, names) {
+  const k = key.trim().toLowerCase();
+  const j = names.findIndex(n => n.toLowerCase() === k);
+  if (j >= 0) return j;
+  return /^\d+$/.test(k) && +k >= 1 && +k <= names.length ? +k - 1 : -1;
+}
+// Columns the template uses (in order of first use) and placeholders that match no column.
+function templateCols(t = state.opts.template, names = columnNames()) {
+  const used = [], unknown = [];
+  for (const m of t.matchAll(PH)) {
+    const j = resolveCol(m[1], names);
+    if (j < 0) { if (!unknown.includes(m[1])) unknown.push(m[1]); } else if (!used.includes(j)) used.push(j);
+  }
+  return { used, unknown };
+}
+
 function buildItems(o = state.opts) {
+  const names = columnNames(), t = o.template.trim();
+  const { used } = templateCols(t, names);
+  if (!used.length) return [];
   const items = [], seen = new Set();
   dataRows().forEach((r, idx) => {
-    const value = String(r[o.column] ?? '').trim();
-    if (o.skipEmpty && !value) return;
-    if (o.dedupe) { if (seen.has(value)) return; seen.add(value); }
-    items.push({ i: items.length, row: idx + 1, value, url: o.base.trim() + (o.encode ? encodeURIComponent(value) : value) });
+    const cell = (j) => String(r[j] ?? '').trim();
+    const values = used.map(cell);
+    if (o.skipEmpty && values.some(v => !v)) return;
+    const url = t.replace(PH, (m, key) => { const j = resolveCol(key, names); return j < 0 ? m : o.encode ? encodeURIComponent(cell(j)) : cell(j); });
+    if (o.dedupe) { if (seen.has(url)) return; seen.add(url); }
+    items.push({ i: items.length, row: idx + 1, value: values.join(' · '), values, url });
   });
   return items;
 }
@@ -39,10 +63,6 @@ async function loadCsvFile(file) {
   const res = Papa.parse(text, { skipEmptyLines: 'greedy' }); // quotes, commas in quotes, CRLF/LF auto-detected
   if (!res.data.length) { toast('That file has no rows'); return; }
   state.csv = { name: file.name || 'pasted.csv', rows: res.data, warnings: res.errors.length };
-  const names = columnNames();
-  const keep = names.indexOf(state.opts.columnName);
-  state.opts.column = keep >= 0 ? keep : 0;
-  state.opts.columnName = names[state.opts.column] || '';
   await DB.put('kv', state.csv, 'csv');
   await saveOpts();
   toast(`Loaded ${dataRows().length} rows`);
@@ -53,12 +73,12 @@ async function loadCsvFile(file) {
 async function loadSample() {
   const res = await fetch('sample.csv');
   if (!res.ok) { toast('Sample not available'); return; }
-  Object.assign(state.opts, { base: 'https://httpbin.org/', header: true, encode: false, skipEmpty: true, dedupe: false, columnName: 'endpoint' });
+  Object.assign(state.opts, { template: 'https://httpbin.org/{endpoint}', header: true, encode: false, skipEmpty: true, dedupe: false });
   await loadCsvFile(new File([await res.blob()], 'sample.csv', { type: 'text/csv' }));
 }
 
 async function saveOpts() {
-  try { localStorage.setItem(LS_BASE, state.opts.base); } catch (e) {}
+  try { localStorage.setItem(LS_TEMPLATE, state.opts.template); } catch (e) {}
   await DB.put('kv', state.opts, 'opts');
 }
 
@@ -92,7 +112,8 @@ async function start(items, retry) {
   const o = state.opts;
   if (!retry) {
     const names = columnNames();
-    const run = { id: uid(), created: Date.now(), base: o.base.trim(), csvName: state.csv.name, column: names[o.column], opts: { ...o }, items };
+    const run = { id: uid(), created: Date.now(), template: o.template.trim(), csvName: state.csv.name,
+      columns: templateCols(o.template, names).used.map(j => names[j]), opts: { ...o }, items };
     await DB.put('runs', run);
     await openRun(run);
     view && (view.setup.open = false);
@@ -223,7 +244,7 @@ function updateEmpty() {
   if (!view) return;
   const c = state.run ? counts() : null;
   view.empty.hidden = view.rendered.size > 0;
-  view.empty.textContent = !state.run ? 'Load a CSV, pick a column and press Run. Each response gets its own box here.'
+  view.empty.textContent = !state.run ? 'Load a CSV, write the URL template and press Run. Each response gets its own box here.'
     : c.done + c.pending === 0 ? 'No requests have run yet.' : 'No boxes match the filter or search.';
 }
 
@@ -247,7 +268,7 @@ function updateSummary() {
   view.count.success.textContent = c.success; view.count.client.textContent = c.client;
   view.count.server.textContent = c.server; view.count.network.textContent = c.network;
   view.exportBtn.disabled = running || !c.done || state.exporting;
-  view.runInfo.textContent = `${run.csvName} · column "${run.column}" · ${new Date(run.created).toLocaleString()}`;
+  view.runInfo.textContent = `${run.csvName} · ${runTemplate(run)} · ${new Date(run.created).toLocaleString()}`;
   updateSentinel(); updateEmpty();
 }
 
@@ -260,7 +281,9 @@ async function exportZip() {
   const label = view.exportBtn.textContent;
   view.exportBtn.textContent = 'Zipping…';
   try {
-    const files = [], lines = [['row', 'value', 'url', 'status', 'time_ms', 'content_type', 'error_reason', 'final_url', 'size_bytes', 'body_file'].join(',')];
+    // With several template columns, each gets its own CSV column after the combined value.
+    const cols = run.columns && run.columns.length > 1 ? run.columns : [];
+    const files = [], lines = [['row', 'value', ...cols, 'url', 'status', 'time_ms', 'content_type', 'error_reason', 'final_url', 'size_bytes', 'body_file'].join(',')];
     for (const it of run.items) {
       const r = state.results.get(it.i);
       let reason = '', file = '';
@@ -274,7 +297,7 @@ async function exportZip() {
         files.push({ name: file, data: r.body });
       }
       const ok = r && r.state === 'done';
-      lines.push([it.row, it.value, it.url, ok && !r.error ? r.status : '', ok ? r.ms : '', ok && !r.error ? Render.mimeOf(r.ct) : '', reason, ok && !r.error ? r.finalUrl : '', ok && !r.error ? r.size : '', file].map(csvCell).join(','));
+      lines.push([it.row, it.value, ...cols.map((_, k) => (it.values || [])[k] ?? ''), it.url, ok && !r.error ? r.status : '', ok ? r.ms : '', ok && !r.error ? Render.mimeOf(r.ct) : '', reason, ok && !r.error ? r.finalUrl : '', ok && !r.error ? r.size : '', file].map(csvCell).join(','));
     }
     files.unshift({ name: 'results.csv', data: '﻿' + lines.join('\r\n') + '\r\n' });
     const blob = await Zip.make(files);
@@ -284,7 +307,8 @@ async function exportZip() {
 }
 
 /* ---------- Fetch tab ---------- */
-function canRun() { return !!(state.csv && state.opts.base.trim() && buildItems().length); }
+function canRun() { return !!(state.csv && buildItems().length); }
+const runTemplate = (run) => run.template || (run.base || '') + (run.column ? `{${run.column}}` : '');
 
 function checkbox(key, label, hint) {
   const cb = h('input', { type: 'checkbox', checked: !!state.opts[key] });
@@ -294,9 +318,20 @@ function checkbox(key, label, hint) {
 
 function renderSetup() {
   const o = state.opts;
-  const base = h('input', { type: 'url', inputmode: 'url', autocapitalize: 'off', autocorrect: 'off', spellcheck: 'false', autocomplete: 'off',
-    placeholder: 'https://api.example.com/users/', value: o.base, enterkeyhint: 'done' });
-  base.addEventListener('input', () => { o.base = base.value; saveOpts(); onSetupChange('base'); });
+  // A wrapping textarea so long templates stay readable on a phone; line breaks are never part of a URL.
+  const tpl = h('textarea', { class: 'tpl', rows: 2, inputmode: 'url', autocapitalize: 'off', autocorrect: 'off', spellcheck: 'false', autocomplete: 'off',
+    placeholder: 'https://api.example.com/users/{id}/get', value: o.template, enterkeyhint: 'done' });
+  tpl.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); tpl.blur(); } });
+  tpl.addEventListener('input', () => {
+    if (/[\r\n]/.test(tpl.value)) tpl.value = tpl.value.replace(/[\r\n]+/g, '');
+    o.template = tpl.value; saveOpts(); onSetupChange('template');
+  });
+  // Column chips insert {name} at the cursor, so nobody has to hunt for braces on the iPhone keyboard.
+  const insert = (text) => {
+    const s = tpl.selectionStart ?? tpl.value.length, e = tpl.selectionEnd ?? s;
+    tpl.setRangeText(text, s, e, 'end');
+    tpl.dispatchEvent(new Event('input'));
+  };
 
   const fileInfo = state.csv
     ? h('div', null, h('b', null, state.csv.name), h('span', { class: 'muted small' }, ` · ${dataRows().length} rows · ${columnNames().length} columns` + (state.csv.warnings ? ` · ${state.csv.warnings} parse warning(s)` : '')))
@@ -315,17 +350,18 @@ function renderSetup() {
   drop.addEventListener('dragleave', () => drop.classList.remove('over'));
   drop.addEventListener('drop', (e) => { e.preventDefault(); drop.classList.remove('over'); loadCsvFile(e.dataTransfer.files[0]); });
 
-  const parts = [h('label', { class: 'field' }, 'Base URL', base), h('div', { class: 'field' }, h('span', { class: 'flabel' }, 'CSV file'), drop)];
-  let previewBox = null, colSel = null;
+  const parts = [h('div', { class: 'field' }, h('span', { class: 'flabel' }, 'CSV file'), drop)];
+  let previewBox = null;
   if (state.csv) {
-    const names = columnNames();
-    colSel = h('select', { value: String(o.column) }, names.map((n, j) => h('option', { value: String(j) }, n)));
-    colSel.addEventListener('change', () => { o.column = +colSel.value; o.columnName = names[o.column]; saveOpts(); onSetupChange('column'); });
     previewBox = h('div', { class: 'preview-table' });
-    parts.push(checkbox('header', 'First row is header'),
-      previewBox,
-      h('label', { class: 'field' }, 'Column to append', colSel));
+    parts.push(checkbox('header', 'First row is header'), previewBox);
   }
+  parts.push(h('label', { class: 'field' }, 'URL template', tpl),
+    state.csv ? h('div', { class: 'colchips' }, h('span', { class: 'muted small' }, 'Tap to insert a column:'),
+      h('div', { class: 'chips' }, columnNames().map(n => h('button', { type: 'button', class: 'chip',
+        onmousedown: (e) => e.preventDefault(), // keep the cursor in the field on desktop
+        onclick: () => insert(`{${n}}`) }, n))))
+      : h('div', { class: 'muted small' }, 'Write {column name} where a value goes, e.g. https://example.com/{id}/{name}/get. Load a CSV to get insert buttons.'));
 
   const conc = h('input', { type: 'range', min: 1, max: 10, step: 1, value: o.concurrency });
   const concVal = h('b', null, String(o.concurrency));
@@ -333,7 +369,7 @@ function renderSetup() {
   const tmo = h('input', { type: 'number', min: 1, max: 300, step: 1, inputmode: 'numeric', value: o.timeout });
   tmo.addEventListener('input', () => { const v = +tmo.value; if (v >= 1 && v <= 300) { o.timeout = v; saveOpts(); } });
   parts.push(h('div', { class: 'opts' },
-    checkbox('encode', 'URL-encode values'), checkbox('skipEmpty', 'Skip empty cells'), checkbox('dedupe', 'Deduplicate values'),
+    checkbox('encode', 'URL-encode values'), checkbox('skipEmpty', 'Skip empty cells'), checkbox('dedupe', 'Skip duplicate URLs'),
     h('label', { class: 'field' }, h('span', null, 'Concurrency ', concVal), conc),
     h('label', { class: 'field' }, 'Timeout per request (s)', tmo)));
 
@@ -352,11 +388,12 @@ function renderSetup() {
 
 function paintPreviewTable() {
   if (!view.previewBox) return;
-  const names = columnNames(), col = state.opts.column;
+  const names = columnNames(), used = templateCols(state.opts.template, names).used;
+  const sel = (j) => used.includes(j) ? 'sel' : null;
   const rows = dataRows().slice(0, 5);
   view.previewBox.replaceChildren(h('table', null,
-    h('thead', null, h('tr', null, names.map((n, j) => h('th', { class: j === col ? 'sel' : null }, n)))),
-    h('tbody', null, rows.map(r => h('tr', null, names.map((_, j) => h('td', { class: j === col ? 'sel' : null }, String(r[j] ?? '')))))),
+    h('thead', null, h('tr', null, names.map((n, j) => h('th', { class: sel(j) }, n)))),
+    h('tbody', null, rows.map(r => h('tr', null, names.map((_, j) => h('td', { class: sel(j) }, String(r[j] ?? '')))))),
   ), h('div', { class: 'muted small' }, `First ${rows.length} of ${dataRows().length} rows`));
 }
 
@@ -364,15 +401,18 @@ function paintUrlPreview() {
   const items = state.csv ? buildItems() : [];
   const o = state.opts;
   const nodes = [];
-  if (!o.base.trim()) nodes.push(h('div', { class: 'muted' }, 'Enter a base URL.'));
-  else if (!state.csv) nodes.push(h('div', { class: 'muted' }, 'Load a CSV to see the first URL.'));
-  else if (!items.length) nodes.push(h('div', { class: 'muted' }, 'No values to fetch in this column.'));
+  const { used, unknown } = state.csv ? templateCols() : { used: [], unknown: [] };
+  if (unknown.length) nodes.push(h('div', { class: 'note warn' }, `No column matches ${unknown.map(u => `{${u}}`).join(', ')}; ${unknown.length === 1 ? 'it stays' : 'they stay'} as typed. Use a header name or a column number like {2}.`));
+  if (!state.csv) nodes.push(h('div', { class: 'muted' }, 'Load a CSV to see the first URL.'));
+  else if (!o.template.trim()) nodes.push(h('div', { class: 'muted' }, 'Write the URL template.'));
+  else if (!used.length) nodes.push(h('div', { class: 'muted' }, 'Add at least one {column} to the template (tap a column above).'));
+  else if (!items.length) nodes.push(h('div', { class: 'muted' }, 'No rows to fetch: every row has an empty value in a column the template uses.'));
   else {
     nodes.push(h('div', { class: 'muted small' }, `Row ${items[0].row} URL · ${items.length} request${items.length === 1 ? '' : 's'}`),
       h('code', { class: 'url' }, items[0].url));
     try { const u = new URL(items[0].url); if (!/^https?:$/.test(u.protocol)) throw 0; }
-    catch (e) { nodes.push(h('div', { class: 'note warn' }, 'This is not a valid http(s) URL. Check the base URL.')); }
-    if (o.encode && items.some(it => it.value.includes('/'))) {
+    catch (e) { nodes.push(h('div', { class: 'note warn' }, 'This is not a valid http(s) URL. The template must start with http:// or https://.')); }
+    if (o.encode && items.some(it => it.values.some(v => v.includes('/')))) {
       nodes.push(h('div', { class: 'note' }, 'Some values contain "/", which URL-encoding turns into %2F. If the values are paths (like image/png), turn "URL-encode values" off.'));
     }
   }
@@ -382,13 +422,8 @@ function paintUrlPreview() {
 }
 
 function onSetupChange(key) {
-  if (key === 'header') {
-    const names = columnNames();
-    state.opts.column = Math.min(state.opts.column, Math.max(0, names.length - 1));
-    state.opts.columnName = names[state.opts.column] || '';
-    saveOpts(); Tabs.refresh(); return;
-  }
-  if (key === 'column') paintPreviewTable();
+  if (key === 'header') { Tabs.refresh(); return; } // column names change, so rebuild the chips
+  if (key === 'template') paintPreviewTable();
   paintUrlPreview(); updateSummary();
 }
 
@@ -446,10 +481,10 @@ async function renderHistory(body) {
     const c = run.counts;
     const active = state.run && state.run.id === run.id;
     list.append(UI.card({
-      title: `${run.csvName} · ${run.column}`,
+      title: run.csvName,
       subtitle: new Date(run.created).toLocaleString(),
       chip: active ? h('span', { class: 'badge ok' }, 'Open') : null,
-      meta: [h('div', { class: 'url' }, run.base),
+      meta: [h('div', { class: 'url' }, runTemplate(run)),
         h('div', null, c ? `${run.items.length} rows · ${c.success} success · ${c.client + c.server} HTTP errors · ${c.network} network` + (c.notRun ? ` · ${c.notRun} not run` : '')
           : `${run.items.length} rows · not finished`)],
       actions: [
@@ -487,7 +522,12 @@ async function renderSettings(body) {
   await DB.open(['runs', 'results']);
   await Theme.load();
   state.opts = { ...DEFAULT_OPTS, ...((await DB.get('kv', 'opts')) || {}) };
-  try { const b = localStorage.getItem(LS_BASE); if (b != null && !state.opts.base) state.opts.base = b; } catch (e) {}
+  if (state.opts.template === '') { // carry over a v1 "base URL + column" setup
+    const old = state.opts.base || (() => { try { return localStorage.getItem(APP_SLUG + '-base-url'); } catch (e) { return null; } })();
+    if (old) state.opts.template = old + (state.opts.columnName ? `{${state.opts.columnName}}` : '');
+  }
+  try { const t = localStorage.getItem(LS_TEMPLATE); if (t && !state.opts.template) state.opts.template = t; } catch (e) {}
+  delete state.opts.base; delete state.opts.column; delete state.opts.columnName;
   state.csv = (await DB.get('kv', 'csv')) || null;
   const last = await DB.get('kv', 'lastRun');
   if (last) { const run = await DB.get('runs', last); if (run) await openRun(run); }
