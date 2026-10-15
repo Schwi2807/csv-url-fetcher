@@ -135,11 +135,17 @@ const Render = (() => {
     return [tools, collapsible(el, lines > LINES)];
   }
 
+  // Images fill the box width (CSS); tiny ones (icons) get crisp pixels instead of blurry upscaling.
+  function fitImg(img) {
+    const big = Math.max(img.naturalWidth, img.naturalHeight);
+    img.classList.toggle('tiny', big > 0 && big < 64);
+  }
+
   function image(info, blob, base, r) {
     const dims = h('span', { class: 'muted small' }, 'loading…');
     const url = URL.createObjectURL(blob);
     const img = h('img', { class: 'shot', alt: 'Response image', src: url });
-    img.onload = () => { dims.textContent = `${img.naturalWidth} × ${img.naturalHeight} px · ${info.mime}`; URL.revokeObjectURL(url); };
+    img.onload = () => { fitImg(img); dims.textContent = `${img.naturalWidth} × ${img.naturalHeight} px · ${info.mime}`; URL.revokeObjectURL(url); };
     img.onerror = () => { dims.textContent = 'The browser could not display this image.'; URL.revokeObjectURL(url); };
     if (typeof Viewer !== 'undefined') { img.classList.add('tap'); img.onclick = () => Viewer.open([blob], { title: base }); }
     return [h('div', { class: 'tools' }, dims, h('span', { class: 'spacer' }), dlBtn(blob, fileName(base, info.mime, 'image'))), img];
@@ -206,5 +212,5 @@ const Render = (() => {
     return box;
   }
 
-  return { body, detect, fileName, fmtSize, mimeOf, EXT, copyBtn };
+  return { body, detect, fileName, fmtSize, mimeOf, EXT, copyBtn, fitImg };
 })();

@@ -19,7 +19,8 @@ the device; only the requests themselves need the internet.
    and not-yet-run rows.
 5. Boxes appear one by one as requests start (spinner while waiting) and fill in as responses arrive:
    - JSON: highlighted, every level folds, Copy gives pretty JSON.
-   - Images: shown with their size in pixels; tap to zoom; Download.
+   - Images: fitted to the box width (tall ones capped at 70% of the screen height, tiny icons kept crisp), with
+     their size in pixels; tap to zoom; Download. CORS-blocked image URLs are still shown as fitted images.
    - Text, XML, CSV: monospace, Copy.
    - HTML: source with Copy, plus a Preview in a sandboxed frame (no scripts).
    - PDF: Preview (all pages) and Download. Other binary: type, size, first bytes, Download.

@@ -177,10 +177,19 @@ function explain(r) {
 }
 
 // The app may not read a CORS-blocked response, but the browser may still show it, like tapping the link.
-// sandbox="" = no scripts, no forms, no access to this app; lazy so a long list does not load them all at once.
+// Images first: <img> may show other sites' images without CORS, and then it fits the box like any image.
+// Anything that is not an image goes into a frame: sandbox="" = no scripts, no forms, no access to this app.
 function corsFrame(it) {
-  return h('div', { class: 'resp' },
+  const box = h('div', { class: 'resp' }, h('div', { class: 'muted small' }, 'Loading…'));
+  const img = h('img', { class: 'shot', alt: 'Response image', referrerpolicy: 'no-referrer' });
+  img.onload = () => {
+    Render.fitImg(img);
+    box.replaceChildren(h('div', { class: 'muted small' }, `${img.naturalWidth} × ${img.naturalHeight} px`), img);
+  };
+  img.onerror = () => box.replaceChildren(
     h('iframe', { class: 'preview', src: it.url, sandbox: '', loading: 'lazy', referrerpolicy: 'no-referrer', title: 'Response for row ' + it.row }));
+  img.src = it.url;
+  return box;
 }
 
 function card(it) {
